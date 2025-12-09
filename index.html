@@ -1,0 +1,374 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>網頁畫畫程式</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        /* 設置基本字體和背景 */
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #e5e7eb; /* 淺灰色背景 */
+            display: flex;
+            justify-content: center;
+            align-items: flex-start;
+            min-height: 100vh;
+            padding: 20px 10px;
+        }
+
+        .drawing-container {
+            max-width: 900px;
+            width: 100%;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        /* 繪圖畫布樣式 */
+        #drawing-canvas {
+            background-color: white;
+            border: 3px solid #3b82f6; /* 藍色邊框 */
+            box-shadow: 0 10px 20px rgba(0, 0, 0, 0.1);
+            touch-action: none; /* 禁用瀏覽器默認的觸控操作 */
+            cursor: crosshair;
+        }
+
+        /* 控制面板樣式 */
+        .controls {
+            background-color: white;
+            padding: 1rem;
+            border-radius: 0.75rem;
+            box-shadow: 0 4px 10px rgba(0, 0, 0, 0.05);
+            display: flex;
+            flex-wrap: wrap;
+            gap: 1rem;
+            align-items: center;
+            margin-bottom: 1rem;
+        }
+
+        /* 顏色選擇按鈕 */
+        .color-option {
+            width: 30px;
+            height: 30px;
+            border-radius: 50%;
+            cursor: pointer;
+            border: 2px solid transparent;
+            transition: transform 0.1s;
+        }
+
+        .color-option.selected {
+            border-color: #1f2937; /* 深色邊框表示選中 */
+            transform: scale(1.1);
+        }
+
+        /* 粗細預覽 */
+        .size-preview {
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            background-color: #1f2937;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .size-dot {
+            border-radius: 50%;
+            background-color: white;
+        }
+
+        /* 響應式調整 */
+        @media (max-width: 600px) {
+            .controls {
+                justify-content: space-around;
+                padding: 0.75rem;
+            }
+            .color-option {
+                width: 25px;
+                height: 25px;
+            }
+        }
+    </style>
+</head>
+<body>
+
+<div class="drawing-container">
+    <h1 class="text-3xl font-bold text-gray-800 mb-4">🎨 自由畫板 🖌️</h1>
+    
+    <!-- 控制面板 -->
+    <div class="controls w-full">
+        <!-- 顏色選擇 -->
+        <div class="flex items-center space-x-2">
+            <span class="text-gray-700 font-medium">顏色:</span>
+            <div id="color-options" class="flex space-x-2">
+                <!-- 顏色按鈕將由 JS 插入 -->
+            </div>
+            <input type="color" id="custom-color" class="w-8 h-8 rounded-full border-none p-0 cursor-pointer" title="自定義顏色">
+        </div>
+
+        <!-- 粗細選擇 -->
+        <div class="flex items-center space-x-3">
+            <span class="text-gray-700 font-medium">粗細:</span>
+            <input type="range" id="brush-size" min="1" max="50" value="5" class="w-24">
+            <div class="size-preview">
+                <div id="size-dot" class="size-dot"></div>
+            </div>
+        </div>
+        
+        <!-- 功能按鈕 -->
+        <button id="clear-btn" class="px-4 py-2 bg-red-500 text-white font-semibold rounded-md shadow-md hover:bg-red-600 transition">
+            清除畫布 🗑️
+        </button>
+        <button id="save-btn" class="px-4 py-2 bg-green-500 text-white font-semibold rounded-md shadow-md hover:bg-green-600 transition">
+            儲存圖片 💾
+        </button>
+    </div>
+
+    <!-- 畫布區 -->
+    <canvas id="drawing-canvas"></canvas>
+
+</div>
+
+<script>
+    // ====================================================================
+    // 畫板狀態與初始化
+    // ====================================================================
+
+    const canvas = document.getElementById('drawing-canvas');
+    const ctx = canvas.getContext('2d');
+    
+    const controls = {
+        colorOptions: document.getElementById('color-options'),
+        customColor: document.getElementById('custom-color'),
+        brushSize: document.getElementById('brush-size'),
+        sizeDot: document.getElementById('size-dot'),
+        clearBtn: document.getElementById('clear-btn'),
+        saveBtn: document.getElementById('save-btn'),
+    };
+
+    let isDrawing = false;
+    let lastX = 0;
+    let lastY = 0;
+    
+    let currentColor = '#000000'; // 預設顏色
+    let currentSize = 5;      // 預設粗細
+
+    // 預設顏色選項
+    const defaultColors = ['#000000', '#ef4444', '#3b82f6', '#10b981', '#f59e0b', '#8b5cf6'];
+
+    /**
+     * 設置畫布尺寸為其父容器的寬度和高度，並處理響應式。
+     */
+    function setCanvasSize() {
+        // 獲取容器的寬度
+        const containerWidth = canvas.parentElement.clientWidth;
+        
+        // 設置畫布尺寸 (例如 16:9 比例)
+        const width = Math.min(860, containerWidth - 20); // 最大寬度 860px，預留邊距
+        const height = width * 0.7; // 設置寬高比例為 10:7
+
+        // 儲存當前畫布內容 (如果需要保留舊圖)
+        const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+
+        // 設置畫布的實際像素尺寸
+        canvas.width = width;
+        canvas.height = height;
+
+        // 恢復舊圖 (如果需要)
+        ctx.putImageData(imageData, 0, 0);
+
+        // 重置繪圖設定
+        ctx.lineJoin = 'round';
+        ctx.lineCap = 'round';
+        ctx.strokeStyle = currentColor;
+        ctx.lineWidth = currentSize;
+    }
+
+    /**
+     * 更新畫筆預覽圓點的大小和顏色。
+     */
+    function updateSizePreview() {
+        controls.sizeDot.style.width = `${currentSize}px`;
+        controls.sizeDot.style.height = `${currentSize}px`;
+        controls.sizeDot.style.backgroundColor = currentColor;
+    }
+
+    /**
+     * 繪圖功能核心：從 (x1, y1) 畫一條線到 (x2, y2)。
+     * @param {number} x1 - 起始 X 座標
+     * @param {number} y1 - 起始 Y 座標
+     * @param {number} x2 - 結束 X 座標
+     * @param {number} y2 - 結束 Y 座標
+     */
+    function draw(x1, y1, x2, y2) {
+        ctx.beginPath();
+        ctx.moveTo(x1, y1);
+        ctx.lineTo(x2, y2);
+        ctx.stroke();
+    }
+
+    // ====================================================================
+    // 事件處理函數
+    // ====================================================================
+
+    /**
+     * 處理滑鼠/觸控開始事件。
+     */
+    function startDrawing(e) {
+        e.preventDefault(); // 防止觸控滾動等默認行為
+        isDrawing = true;
+        
+        // 獲取正確的座標 (處理滑鼠和觸控)
+        const clientX = e.clientX || e.touches[0].clientX;
+        const clientY = e.clientY || e.touches[0].clientY;
+        
+        // 轉換為相對於 Canvas 的座標
+        const rect = canvas.getBoundingClientRect();
+        [lastX, lastY] = [clientX - rect.left, clientY - rect.top];
+        
+        // 繪製一個點 (避免點擊時沒有繪製)
+        draw(lastX, lastY, lastX, lastY);
+    }
+
+    /**
+     * 處理滑鼠/觸控移動事件。
+     */
+    function drawing(e) {
+        if (!isDrawing) return;
+        e.preventDefault();
+
+        const clientX = e.clientX || e.touches[0].clientX;
+        const clientY = e.clientY || e.touches[0].clientY;
+
+        const rect = canvas.getBoundingClientRect();
+        const newX = clientX - rect.left;
+        const newY = clientY - rect.top;
+
+        draw(lastX, lastY, newX, newY);
+        [lastX, lastY] = [newX, newY]; // 更新 lastX, lastY
+    }
+
+    /**
+     * 處理滑鼠/觸控結束事件。
+     */
+    function stopDrawing() {
+        isDrawing = false;
+    }
+    
+    /**
+     * 設置新的畫筆顏色。
+     * @param {string} color - 顏色的十六進位碼
+     */
+    function setBrushColor(color) {
+        currentColor = color;
+        ctx.strokeStyle = currentColor;
+        
+        // 更新顏色選擇 UI
+        document.querySelectorAll('.color-option').forEach(el => {
+            el.classList.remove('selected');
+            if (el.style.backgroundColor.toLowerCase() === color.toLowerCase()) {
+                el.classList.add('selected');
+            }
+        });
+        controls.customColor.value = color;
+        updateSizePreview();
+    }
+
+    /**
+     * 處理畫筆粗細改變。
+     */
+    function handleSizeChange(e) {
+        currentSize = parseInt(e.target.value);
+        ctx.lineWidth = currentSize;
+        updateSizePreview();
+    }
+    
+    /**
+     * 渲染預設顏色按鈕。
+     */
+    function renderColorOptions() {
+        controls.colorOptions.innerHTML = '';
+        defaultColors.forEach(color => {
+            const button = document.createElement('div');
+            button.className = 'color-option';
+            button.style.backgroundColor = color;
+            button.title = color;
+            button.addEventListener('click', () => setBrushColor(color));
+            
+            if (color === currentColor) {
+                button.classList.add('selected');
+            }
+            controls.colorOptions.appendChild(button);
+        });
+    }
+
+    /**
+     * 處理儲存圖片功能。
+     */
+    function handleSave() {
+        // 將 Canvas 內容轉換為圖片 URL
+        const imageURL = canvas.toDataURL('image/png'); 
+        
+        // 創建一個臨時連結用於下載
+        const a = document.createElement('a');
+        a.href = imageURL;
+        a.download = '我的畫作.png'; // 設置下載檔名
+        document.body.appendChild(a);
+        a.click(); // 模擬點擊下載
+        document.body.removeChild(a);
+    }
+
+
+    // ====================================================================
+    // 設置監聽器與啟動
+    // ====================================================================
+
+    // 滑鼠事件
+    canvas.addEventListener('mousedown', startDrawing);
+    canvas.addEventListener('mousemove', drawing);
+    canvas.addEventListener('mouseup', stopDrawing);
+    canvas.addEventListener('mouseout', stopDrawing);
+
+    // 觸控事件 (適用於手機/平板)
+    canvas.addEventListener('touchstart', startDrawing);
+    canvas.addEventListener('touchmove', drawing);
+    canvas.addEventListener('touchend', stopDrawing);
+    canvas.addEventListener('touchcancel', stopDrawing);
+
+    // 控制項事件
+    controls.brushSize.addEventListener('input', handleSizeChange);
+    controls.customColor.addEventListener('input', (e) => setBrushColor(e.target.value));
+    controls.clearBtn.addEventListener('click', () => {
+        // 清除整個畫布 (填滿白色)
+        ctx.fillStyle = 'white';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        setBrushColor(currentColor); // 重新設置顏色，以防清除後顏色改變
+    });
+    controls.saveBtn.addEventListener('click', handleSave);
+    
+    // 窗口大小改變時調整畫布
+    window.addEventListener('resize', () => {
+        setCanvasSize();
+        // 清除畫布並重新設置為白色
+        ctx.fillStyle = 'white';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+    });
+
+
+    // 初始化應用程式
+    window.onload = function() {
+        setCanvasSize();
+        // 初始設定畫布為白色背景
+        ctx.fillStyle = 'white';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        
+        renderColorOptions();
+        updateSizePreview();
+        setBrushColor(currentColor); // 確保初始顏色和粗細應用
+    };
+
+</script>
+
+</body>
+</html>
